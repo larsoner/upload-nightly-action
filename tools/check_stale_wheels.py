@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
 import sys
 import urllib.parse
 from collections import defaultdict
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import jinja2
 import requests
 from github import Auth, Github, GithubException
 
@@ -58,8 +60,9 @@ PYPI_MAP = {
     "icechunk": "earth-mover/icechunk",
 }
 
+HERE = Path(__file__).resolve().parent
 SCRIPT = Path(__file__).name
-IGNORE_FILE = Path(__file__).resolve().parent.parent / "packages-ignore-from-cleanup.txt"
+IGNORE_FILE = HERE.parent / "packages-ignore-from-cleanup.txt"
 SESSION = requests.Session()
 SESSION.headers["User-Agent"] = "scientific-python-upload-nightly-action"
 
@@ -371,34 +374,81 @@ def handle_repo(repo, packages, now):
             package.error = f"`{package.name}` ({repo.full_name}): {exc}"
 
 
-def write_summary(packages, now):
+def run_url():
+    """Link to the current GitHub Actions run, or None outside of one."""
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id:
+        return None
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    return f"{server}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run_id}"
+
+
+def summary_rows(packages, now):
+    """One row per package, oldest upload first, with what both renderers need."""
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    rows = []
+    for package in sorted(packages, key=lambda p: p.last_upload or epoch):
+        known = package.last_upload is not None
+        age = package.age_days(now) if known else None
+        status = package.status
+        if package.error:
+            # The full text, including how to fix it, goes in the issue report_errors opens
+            status = f"error: {package.error.split(': ', 1)[-1].split(' — ')[0]}"
+        rows.append(
+            {
+                "name": package.name,
+                "upload": f"{package.last_upload:%Y-%m-%d}" if known else "?",
+                "age": str(age) if known else "?",
+                "stale": known and age >= WARN_DAYS,
+                "repo": package.repo.full_name if package.repo else None,
+                "status": status,
+                "url": None if package.error else package.issue_url,
+            }
+        )
+    return rows
+
+
+def markdown_summary(rows, now):
     lines = [
         f"## Nightly wheel freshness ({now:%Y-%m-%d}){' — dry run' if DRY_RUN else ''}",
         "",
         "| Package | Last upload | Age (days) | Repository | Status |",
         "| --- | --- | --- | --- | --- |",
     ]
-    epoch = datetime.min.replace(tzinfo=timezone.utc)
-    for package in sorted(packages, key=lambda p: p.last_upload or epoch):
-        age = "?" if package.last_upload is None else package.age_days(now)
-        upload = "?" if package.last_upload is None else f"{package.last_upload:%Y-%m-%d}"
-        name = package.repo.full_name if package.repo else None
-        repo = f"[{name}](https://github.com/{name})" if name else "—"
-        status = package.status
-        if package.issue_url:
-            status = f"[{status}]({package.issue_url})"
-        if package.error:
-            # Keep the table readable; the full text, including how to fix it, goes
-            # in the issue report_errors opens.
-            status = f"error: {package.error.split(': ', 1)[-1].split(' — ')[0]}"
-        elif age != "?" and age >= WARN_DAYS:
-            age = f"**{age}**"
-        lines.append(f"| {package.name} | {upload} | {age} | {repo} | {status} |")
-    summary = "\n".join(lines)
+    for row in rows:
+        age = f"**{row['age']}**" if row["stale"] else row["age"]
+        repo = f"[{row['repo']}](https://github.com/{row['repo']})" if row["repo"] else "—"
+        status = f"[{row['status']}]({row['url']})" if row["url"] else row["status"]
+        lines.append(f"| {row['name']} | {row['upload']} | {age} | {repo} | {status} |")
+    return "\n".join(lines)
+
+
+def html_summary(rows, now):
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(HERE), autoescape=True)
+    return env.get_template("status.html").render(
+        rows=rows,
+        channel=ANACONDA_USER,
+        channel_url=CHANNEL_URL,
+        policy_url=POLICY_URL,
+        action_url=ACTION_URL,
+        retention_days=RETENTION_DAYS,
+        warn_days=WARN_DAYS,
+        when=f"{now:%Y-%m-%d %H:%M} UTC",
+        run_url=run_url(),
+    )
+
+
+def write_summary(packages, now, html_path=None):
+    rows = summary_rows(packages, now)
+    summary = markdown_summary(rows, now)
     print(summary)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fid:
             fid.write(summary + "\n")
+    if html_path:
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.write_text(html_summary(rows, now))
+        shutil.copy(HERE / "status.css", html_path.parent)
 
 
 def annotate(lines):
@@ -420,11 +470,8 @@ def report_errors(errors):
     This uses GITHUB_TOKEN rather than the bot's token: the thing that failed may
     well be the bot's token itself.
     """
-    run_id = os.environ.get("GITHUB_RUN_ID")
-    check = "stale wheel check"
-    if run_id:
-        server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-        check = f"[{check}]({server}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run_id})"
+    url = run_url()
+    check = f"[stale wheel check]({url})" if url else "stale wheel check"
     body = (
         f"{REPORT_MARKER}\nThese packages are on the "
         f"[`{ANACONDA_USER}`]({CHANNEL_URL}) channel, but the "
@@ -461,6 +508,12 @@ def main(argv=None):
         action="store_true",
         help="report what would happen without opening, commenting on, or closing issues",
     )
+    parser.add_argument(
+        "--html",
+        type=Path,
+        metavar="PATH",
+        help="also write the table as a standalone web page, for the status site",
+    )
     args = parser.parse_args(argv)
 
     DRY_RUN = args.dry_run
@@ -493,7 +546,7 @@ def main(argv=None):
     for group in by_repo.values():
         handle_repo(group[0].repo, group, now)
 
-    write_summary(packages, now)
+    write_summary(packages, now, args.html)
     annotate(NOTICES)
     errors = [package.error for package in packages if package.error]
     if errors:
