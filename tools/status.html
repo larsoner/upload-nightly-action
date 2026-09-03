@@ -1,21 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scientific Python nightly wheel freshness</title>
-<link rel="icon" href="https://scientific-python.org/favicon.ico">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;900&display=swap">
-<link rel="stylesheet" href="status.css">
-</head>
-<body>
-<header>
-<a href="https://scientific-python.org"><img src="https://scientific-python.org/images/logo.svg"
-  alt="Scientific Python logo"></a>
-<h1>Nightly wheel freshness
-<small>the <a href="{{ channel_url }}"><code>{{ channel }}</code></a> channel</small></h1>
-</header>
+{% extends "layout.html" %}
+{% block subtitle %}the <a href="{{ channel_url }}"><code>{{ channel }}</code></a> channel{% endblock %}
+{% block content %}
 <p>How recently each project last uploaded a nightly wheel.
 Wheels are <a href="{{ policy_url }}">removed after {{ retention_days }} days</a>; projects whose
 newest wheel is more than {{ warn_days }} days old are highlighted, and have an issue opened on
@@ -34,8 +19,8 @@ their tracker.</p>
 {% endfor -%}
 </tbody>
 </table>
-<footer>Updated {{ when }} by
+{% endblock %}
+{% block footer %}Updated {{ when }} by
 {% if run_url %}<a href="{{ run_url }}">the daily check</a>{% else %}the daily check{% endif %}, from
-<a href="{{ action_url }}">scientific-python/upload-nightly-action</a>.</footer>
-</body>
-</html>
+<a href="{{ action_url }}">scientific-python/upload-nightly-action</a>.
+<a href="./">About the channel and this check.</a>{% endblock %}

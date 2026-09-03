@@ -16,7 +16,7 @@ The hour between the two is deliberate: a package must be flagged before it can 
 This repository nags other projects about silently broken automation, so its own cron jobs must not fail quietly.
 It is called as a job rather than used as a composite action because `ci.yml` checks out to `_action_path` and `remove-wheels.yml` does not check out at all.
 
-The stale wheel check also renders its table through `tools/status.html` and `tools/status.css` (Jinja, autoescaped) into `site/index.html`, which `stale-wheels.yml` publishes to <https://scientific-python.github.io/upload-nightly-action/> with `actions/deploy-pages`.
+The stale wheel check also renders a small site with Jinja: the table through `tools/status.html` into `site/status.html`, and the README through `tools/index.html` into `site/index.html`, both extending `tools/layout.html` and sharing `tools/_static/site.css`; `stale-wheels.yml` then publishes the directory to <https://scientific-python.github.io/upload-nightly-action/> with `actions/deploy-pages`.
 Pages is deployed from the workflow artifact, not a `gh-pages` branch, by request; the repository's Pages source must be set to "GitHub Actions" for the deploy job to work.
 Dry runs skip the deploy so the public page never shows "would open".
 

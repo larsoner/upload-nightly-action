@@ -1,4 +1,5 @@
-/* Colors are the PyData Sphinx Theme tokens that https://scientific-python.org is
+/* Deployed as _static/site.css beside the rendered pages.
+   Colors are the PyData Sphinx Theme tokens that https://scientific-python.org is
    built on, copied from the --pst-color-* custom properties in the compiled
    stylesheet it serves (the filename is content-hashed, so it cannot be linked):
    https://github.com/scientific-python/scientific-python-hugo-theme/blob/main/assets/theme-css/pst/variables/_color.scss
@@ -32,3 +33,10 @@ th, td { text-align: left; padding: 0.45rem 0.75rem; border-bottom: 1px solid va
 th:nth-child(3), td:nth-child(3) { text-align: right; }
 tr.stale td { background: var(--stale); font-weight: 600; }
 footer { margin-top: 2rem; font-size: 0.9rem; color: var(--muted); }
+
+/* The landing page is the README, rendered */
+main h1, main h2 { font-family: Lato, sans-serif; font-weight: 900; font-size: 1.4rem; margin: 2rem 0 0.5rem; }
+pre { background: var(--surface); padding: 0.75rem 1rem; overflow-x: auto; border-radius: 4px; }
+pre code { font-size: 0.85em; }
+:not(pre) > code { background: var(--surface); padding: 0.1em 0.3em; border-radius: 3px; }
+.callout { background: var(--surface); border-left: 4px solid var(--primary); padding: 0.75rem 1rem; }

@@ -38,7 +38,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           uv run --with-requirements tools/requirements.txt tools/check_stale_wheels.py \
-            --html site/index.html ${{ inputs.dry_run && '--dry-run' || '' }}
+            --site site ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Upload the status page
         if: inputs.dry_run != true

@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jinja2
+import markdown_it
 import requests
 from github import Auth, Github, GithubException
 
@@ -61,6 +62,7 @@ PYPI_MAP = {
 }
 
 HERE = Path(__file__).resolve().parent
+TEMPLATES = jinja2.Environment(loader=jinja2.FileSystemLoader(HERE), autoescape=True)
 SCRIPT = Path(__file__).name
 IGNORE_FILE = HERE.parent / "packages-ignore-from-cleanup.txt"
 SESSION = requests.Session()
@@ -423,9 +425,9 @@ def markdown_summary(rows, now):
     return "\n".join(lines)
 
 
-def html_summary(rows, now):
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(HERE), autoescape=True)
-    return env.get_template("status.html").render(
+def status_page(rows, now):
+    return TEMPLATES.get_template("status.html").render(
+        title="Nightly wheel freshness",
         rows=rows,
         channel=ANACONDA_USER,
         channel_url=CHANNEL_URL,
@@ -438,17 +440,32 @@ def html_summary(rows, now):
     )
 
 
-def write_summary(packages, now, html_path=None):
+def landing_page(now):
+    """The README, rendered, so the site's front page never goes stale."""
+    heading, _, body = (HERE.parent / "README.md").read_text().partition("\n")
+    return TEMPLATES.get_template("index.html").render(
+        # The layout's header is the page title, so the README's own is dropped
+        title=heading.removeprefix("# ").strip(),
+        readme=markdown_it.MarkdownIt("commonmark").render(body),
+        action_url=ACTION_URL,
+        when=f"{now:%Y-%m-%d}",
+    )
+
+
+def write_summary(packages, now, site_dir=None):
     rows = summary_rows(packages, now)
     summary = markdown_summary(rows, now)
     print(summary)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fid:
             fid.write(summary + "\n")
-    if html_path:
-        html_path.parent.mkdir(parents=True, exist_ok=True)
-        html_path.write_text(html_summary(rows, now))
-        shutil.copy(HERE / "status.css", html_path.parent)
+    if site_dir:
+        site_dir.mkdir(parents=True, exist_ok=True)
+        (site_dir / "status.html").write_text(status_page(rows, now))
+        (site_dir / "index.html").write_text(landing_page(now))
+        shutil.copytree(HERE / "_static", site_dir / "_static", dirs_exist_ok=True)
+        # Harmless with the Actions deploy; keeps _static/ alive if Pages ever moves to a branch
+        (site_dir / ".nojekyll").touch()
 
 
 def annotate(lines):
@@ -509,10 +526,10 @@ def main(argv=None):
         help="report what would happen without opening, commenting on, or closing issues",
     )
     parser.add_argument(
-        "--html",
+        "--site",
         type=Path,
-        metavar="PATH",
-        help="also write the table as a standalone web page, for the status site",
+        metavar="DIR",
+        help="also write the status site there: the table, the README, and the stylesheet",
     )
     args = parser.parse_args(argv)
 
@@ -546,7 +563,7 @@ def main(argv=None):
     for group in by_repo.values():
         handle_repo(group[0].repo, group, now)
 
-    write_summary(packages, now, args.html)
+    write_summary(packages, now, args.site)
     annotate(NOTICES)
     errors = [package.error for package in packages if package.error]
     if errors:
